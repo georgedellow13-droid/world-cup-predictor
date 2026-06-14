@@ -9,6 +9,54 @@ const supabase = createClient(
 
 const GROUPS = ['A','B','C','D','E','F','G','H','I','J','K','L']
 
+const PRED_GROUPS: Record<string, string[]> = {
+  A: ['Mexico','South Africa','Korea Republic','Czechia'],
+  B: ['Canada','Bosnia-Herzegovina','Qatar','Switzerland'],
+  C: ['Brazil','Morocco','Haiti','Scotland'],
+  D: ['United States','Paraguay','Australia','Turkey'],
+  E: ['Germany','Curacao','Ivory Coast','Ecuador'],
+  F: ['Netherlands','Japan','Sweden','Tunisia'],
+  G: ['Belgium','Egypt','Iran','New Zealand'],
+  H: ['Spain','Cape Verde Islands','Saudi Arabia','Uruguay'],
+  I: ['France','Senegal','Iraq','Norway'],
+  J: ['Argentina','Algeria','Austria','Jordan'],
+  K: ['Portugal','Congo DR','Uzbekistan','Colombia'],
+  L: ['England','Croatia','Ghana','Panama'],
+}
+
+function buildTable(matches: any[], group: string) {
+  const table: Record<string, {team:string,p:number,w:number,d:number,l:number,gf:number,ga:number,pts:number}> = {}
+
+  const groupMatches = matches.filter(m => m.group === `GROUP_${group}` && (m.status === 'FINISHED' || m.status === 'IN_PLAY' || m.status === 'PAUSED'))
+
+  groupMatches.forEach(m => {
+    const home = m.homeTeam?.name
+    const away = m.awayTeam?.name
+    const hg = m.score?.fullTime?.home ?? 0
+    const ag = m.score?.fullTime?.away ?? 0
+
+    if (!table[home]) table[home] = {team:home,p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}
+    if (!table[away]) table[away] = {team:away,p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}
+
+    table[home].p++; table[away].p++
+    table[home].gf += hg; table[home].ga += ag
+    table[away].gf += ag; table[away].ga += hg
+
+    if (hg > ag) {
+      table[home].w++; table[home].pts += 3
+      table[away].l++
+    } else if (hg === ag) {
+      table[home].d++; table[home].pts++
+      table[away].d++; table[away].pts++
+    } else {
+      table[away].w++; table[away].pts += 3
+      table[home].l++
+    }
+  })
+
+  return Object.values(table).sort((a,b) => b.pts - a.pts || (b.gf-b.ga) - (a.gf-a.ga) || b.gf - a.gf)
+}
+
 function LiveScores() {
   const [matches, setMatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +73,7 @@ function LiveScores() {
   }, [])
 
   const groupMatches = matches.filter(m => m.group === `GROUP_${activeGroup}`)
+  const table = buildTable(matches, activeGroup)
 
   return (
     <div>
@@ -37,7 +86,47 @@ function LiveScores() {
           }}>{g}</button>
         ))}
       </div>
-      {loading && <p>Loading matches...</p>}
+
+      {loading && <p>Loading...</p>}
+
+      {table.length > 0 && (
+        <div style={{marginBottom:'16px',overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.8rem'}}>
+            <thead>
+              <tr style={{color:'#aaa',borderBottom:'1px solid #333'}}>
+                <th style={{textAlign:'left',padding:'6px 4px'}}>Team</th>
+                <th style={{padding:'6px 4px'}}>P</th>
+                <th style={{padding:'6px 4px'}}>W</th>
+                <th style={{padding:'6px 4px'}}>D</th>
+                <th style={{padding:'6px 4px'}}>L</th>
+                <th style={{padding:'6px 4px'}}>GD</th>
+                <th style={{padding:'6px 4px'}}>Pts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {table.map((row, i) => (
+                <tr key={row.team} style={{
+                  borderBottom:'1px solid #222',
+                  background: i < 2 ? 'rgba(46,204,113,0.15)' : i < 4 ? 'rgba(52,152,219,0.15)' : 'transparent'
+                }}>
+                  <td style={{padding:'6px 4px'}}>{i+1}. {row.team}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px'}}>{row.p}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px'}}>{row.w}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px'}}>{row.d}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px'}}>{row.l}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px'}}>{row.gf-row.ga > 0 ? '+' : ''}{row.gf-row.ga}</td>
+                  <td style={{textAlign:'center',padding:'6px 4px',fontWeight:'bold'}}>{row.pts}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{display:'flex',gap:'16px',marginTop:'8px',fontSize:'0.75rem',color:'#aaa'}}>
+            <span><span style={{color:'#2ecc71'}}>■</span> Qualify (top 2)</span>
+            <span><span style={{color:'#3498db'}}>■</span> Possible (3rd/4th)</span>
+          </div>
+        </div>
+      )}
+
       <div style={{display:'flex',flexDirection:'column',gap:'10px'}}>
         {groupMatches.length === 0 && !loading && <p style={{color:'#aaa'}}>No matches yet for Group {activeGroup}</p>}
         {groupMatches.map((m, i) => (
@@ -64,6 +153,7 @@ function LiveScores() {
 export default function Dashboard() {
   const [username, setUsername] = useState('')
   const [activeTab, setActiveTab] = useState('predictions')
+  const [activeGroup, setActiveGroup] = useState('A')
   const [predictions, setPredictions] = useState<Record<string,{home:string,away:string}>>({})
   const [saved, setSaved] = useState(false)
 
@@ -96,22 +186,6 @@ export default function Dashboard() {
     setPredictions(p => ({ ...p, [key]: { ...p[key], home: p[key]?.home||'0', away: p[key]?.away||'0', [side]: val } }))
   }
 
-  const PRED_GROUPS: Record<string, string[]> = {
-    A: ['Mexico','South Africa','Korea Republic','Czechia'],
-    B: ['Canada','Bosnia-Herzegovina','Qatar','Switzerland'],
-    C: ['Brazil','Morocco','Haiti','Scotland'],
-    D: ['United States','Paraguay','Australia','Turkey'],
-    E: ['Germany','Curacao','Ivory Coast','Ecuador'],
-    F: ['Netherlands','Japan','Sweden','Tunisia'],
-    G: ['Belgium','Egypt','Iran','New Zealand'],
-    H: ['Spain','Cape Verde Islands','Saudi Arabia','Uruguay'],
-    I: ['France','Senegal','Iraq','Norway'],
-    J: ['Argentina','Algeria','Austria','Jordan'],
-    K: ['Portugal','Congo DR','Uzbekistan','Colombia'],
-    L: ['England','Croatia','Ghana','Panama'],
-  }
-
-  const [activeGroup, setActiveGroup] = useState('A')
   const teams = PRED_GROUPS[activeGroup] || []
   const fixtures: {home:string,away:string}[] = []
   for (let i=0;i<teams.length;i++) for (let j=i+1;j<teams.length;j++) fixtures.push({home:teams[i],away:teams[j]})
