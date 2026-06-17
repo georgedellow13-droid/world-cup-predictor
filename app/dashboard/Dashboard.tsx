@@ -26,35 +26,109 @@ const PRED_GROUPS: Record<string, string[]> = {
 
 function buildTable(matches: any[], group: string) {
   const table: Record<string, {team:string,p:number,w:number,d:number,l:number,gf:number,ga:number,pts:number}> = {}
-
   const groupMatches = matches.filter(m => m.group === `GROUP_${group}` && (m.status === 'FINISHED' || m.status === 'IN_PLAY' || m.status === 'PAUSED'))
-
   groupMatches.forEach(m => {
     const home = m.homeTeam?.name
     const away = m.awayTeam?.name
     const hg = m.score?.fullTime?.home ?? 0
     const ag = m.score?.fullTime?.away ?? 0
-
     if (!table[home]) table[home] = {team:home,p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}
     if (!table[away]) table[away] = {team:away,p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0}
-
     table[home].p++; table[away].p++
     table[home].gf += hg; table[home].ga += ag
     table[away].gf += ag; table[away].ga += hg
-
-    if (hg > ag) {
-      table[home].w++; table[home].pts += 3
-      table[away].l++
-    } else if (hg === ag) {
-      table[home].d++; table[home].pts++
-      table[away].d++; table[away].pts++
-    } else {
-      table[away].w++; table[away].pts += 3
-      table[home].l++
-    }
+    if (hg > ag) { table[home].w++; table[home].pts += 3; table[away].l++ }
+    else if (hg === ag) { table[home].d++; table[home].pts++; table[away].d++; table[away].pts++ }
+    else { table[away].w++; table[away].pts += 3; table[home].l++ }
   })
-
   return Object.values(table).sort((a,b) => b.pts - a.pts || (b.gf-b.ga) - (a.gf-a.ga) || b.gf - a.gf)
+}
+
+function scorePoints(predHome: number, predAway: number, realHome: number, realAway: number) {
+  if (predHome === realHome && predAway === realAway) return 3
+  const predGD = predHome - predAway
+  const realGD = realHome - realAway
+  if (predGD === realGD) return 2
+  const predResult = predHome > predAway ? 'H' : predHome < predAway ? 'A' : 'D'
+  const realResult = realHome > realAway ? 'H' : realHome < realAway ? 'A' : 'D'
+  if (predResult !== realResult) return -1
+  return 0
+}
+
+function Leaderboard({ currentUser }: { currentUser: string }) {
+  const [leaderboard, setLeaderboard] = useState<{username:string, points:number, correct:number}[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function calculate() {
+      const matchRes = await fetch('/api/matches')
+      const matchData = await matchRes.json()
+      const finishedMatches = (matchData.matches || []).filter((m: any) => m.status === 'FINISHED')
+      const { data: allPredictions } = await supabase.from('predictions').select('*')
+      const { data: allUsers } = await supabase.from('users').select('username')
+      if (!allUsers || !allPredictions) { setLoading(false); return }
+      const scores = allUsers.map((u: any) => {
+        const userPreds = allPredictions.filter((p: any) => p.username === u.username)
+        let points = 0
+        let correct = 0
+        finishedMatches.forEach((m: any) => {
+          const realHome = m.score?.fullTime?.home
+          const realAway = m.score?.fullTime?.away
+          if (realHome === null || realAway === null) return
+          const pred = userPreds.find((p: any) => {
+            const key = p.match_key
+            return key.includes(m.homeTeam?.name) && key.includes(m.awayTeam?.name)
+          })
+          if (!pred) return
+          const pts = scorePoints(parseInt(pred.home_score), parseInt(pred.away_score), realHome, realAway)
+          points += pts
+          if (pts === 3) correct++
+        })
+        return { username: u.username, points, correct }
+      })
+      scores.sort((a, b) => b.points - a.points || b.correct - a.correct)
+      setLeaderboard(scores)
+      setLoading(false)
+    }
+    calculate()
+  }, [])
+
+  const medals = ['🥇','🥈','🥉']
+
+  return (
+    <div>
+      <h2 style={{fontSize:'1.1rem',marginBottom:'16px'}}>🏆 Leaderboard</h2>
+      {loading && <p>Calculating scores...</p>}
+      {!loading && leaderboard.length === 0 && <p style={{color:'#aaa'}}>No scores yet!</p>}
+      <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
+        {leaderboard.map((row, i) => (
+          <div key={row.username} style={{
+            background: row.username === currentUser ? 'rgba(230,57,70,0.2)' : '#16213e',
+            borderRadius:'10px',
+            padding:'12px 16px',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'space-between',
+            border: row.username === currentUser ? '1px solid #e63946' : '1px solid transparent'
+          }}>
+            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+              <span style={{fontSize:'1.2rem'}}>{medals[i] || `${i+1}.`}</span>
+              <span style={{fontWeight: row.username === currentUser ? 'bold' : 'normal'}}>{row.username}</span>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontWeight:'bold',fontSize:'1.1rem'}}>{row.points} pts</div>
+              <div style={{fontSize:'0.75rem',color:'#aaa'}}>{row.correct} exact</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:'16px',fontSize:'0.75rem',color:'#aaa',background:'#16213e',borderRadius:'8px',padding:'10px'}}>
+        <p style={{margin:'2px 0'}}>🎯 Exact score = 3pts</p>
+        <p style={{margin:'2px 0'}}>↔️ Correct goal difference = 2pts</p>
+        <p style={{margin:'2px 0'}}>❌ Wrong result = -1pt</p>
+      </div>
+    </div>
+  )
 }
 
 function LiveScores() {
@@ -65,10 +139,7 @@ function LiveScores() {
   useEffect(() => {
     fetch('/api/matches')
       .then(r => r.json())
-      .then(data => {
-        setMatches(data.matches || [])
-        setLoading(false)
-      })
+      .then(data => { setMatches(data.matches || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
 
@@ -86,9 +157,7 @@ function LiveScores() {
           }}>{g}</button>
         ))}
       </div>
-
       {loading && <p>Loading...</p>}
-
       {table.length > 0 && (
         <div style={{marginBottom:'16px',overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.8rem'}}>
@@ -126,7 +195,6 @@ function LiveScores() {
           </div>
         </div>
       )}
-
       <div style={{display:'flex',flexDirection:'column',gap:'10px'}}>
         {groupMatches.length === 0 && !loading && <p style={{color:'#aaa'}}>No matches yet for Group {activeGroup}</p>}
         {groupMatches.map((m, i) => (
@@ -156,12 +224,14 @@ export default function Dashboard() {
   const [activeGroup, setActiveGroup] = useState('A')
   const [predictions, setPredictions] = useState<Record<string,{home:string,away:string}>>({})
   const [saved, setSaved] = useState(false)
+  const [matches, setMatches] = useState<any[]>([])
 
   useEffect(() => {
     const u = localStorage.getItem('wc_username')
     if (!u) { window.location.href = '/login'; return }
     setUsername(u)
     loadPredictions(u)
+    fetch('/api/matches').then(r => r.json()).then(data => setMatches(data.matches || []))
   }, [])
 
   async function loadPredictions(u: string) {
@@ -186,6 +256,12 @@ export default function Dashboard() {
     setPredictions(p => ({ ...p, [key]: { ...p[key], home: p[key]?.home||'0', away: p[key]?.away||'0', [side]: val } }))
   }
 
+  function isLocked(home: string, away: string) {
+    const match = matches.find(m => m.homeTeam?.name === home && m.awayTeam?.name === away)
+    if (!match) return false
+    return new Date(match.utcDate) <= new Date()
+  }
+
   const teams = PRED_GROUPS[activeGroup] || []
   const fixtures: {home:string,away:string}[] = []
   for (let i=0;i<teams.length;i++) for (let j=i+1;j<teams.length;j++) fixtures.push({home:teams[i],away:teams[j]})
@@ -196,7 +272,7 @@ export default function Dashboard() {
       <p style={{color:'#aaa',marginBottom:'16px',fontSize:'0.9rem'}}>Welcome, {username}!</p>
 
       <div style={{display:'flex',gap:'8px',marginBottom:'16px',flexWrap:'wrap'}}>
-        {['predictions','scores','bracket','squad'].map(tab => (
+        {['predictions','scores','leaderboard','bracket','squad'].map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} style={{
             padding:'8px 14px',borderRadius:'8px',border:'none',
             background: activeTab===tab ? '#e63946' : '#333',
@@ -220,15 +296,22 @@ export default function Dashboard() {
             {fixtures.map(({home,away}) => {
               const key = `${activeGroup}_${home}_${away}`
               const p = predictions[key]
+              const locked = isLocked(home, away)
               return (
-                <div key={key} style={{background:'#16213e',borderRadius:'10px',padding:'12px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div key={key} style={{background:'#16213e',borderRadius:'10px',padding:'12px',display:'flex',alignItems:'center',justifyContent:'space-between',opacity: locked ? 0.6 : 1}}>
                   <span style={{fontSize:'0.85rem',flex:1,textAlign:'right'}}>{home}</span>
                   <div style={{display:'flex',alignItems:'center',gap:'6px',margin:'0 10px'}}>
-                    <input type="number" min="0" max="20" value={p?.home||''} onChange={e=>setScore(key,'home',e.target.value)}
-                      style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
-                    <span>-</span>
-                    <input type="number" min="0" max="20" value={p?.away||''} onChange={e=>setScore(key,'away',e.target.value)}
-                      style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
+                    {locked ? (
+                      <span style={{fontWeight:'bold',fontSize:'1rem',color:'#aaa'}}>{p?.home ?? '-'} - {p?.away ?? '-'} 🔒</span>
+                    ) : (
+                      <>
+                        <input type="number" min="0" max="20" value={p?.home||''} onChange={e=>setScore(key,'home',e.target.value)}
+                          style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
+                        <span>-</span>
+                        <input type="number" min="0" max="20" value={p?.away||''} onChange={e=>setScore(key,'away',e.target.value)}
+                          style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
+                      </>
+                    )}
                   </div>
                   <span style={{fontSize:'0.85rem',flex:1}}>{away}</span>
                 </div>
@@ -243,6 +326,7 @@ export default function Dashboard() {
       )}
 
       {activeTab==='scores' && <LiveScores />}
+      {activeTab==='leaderboard' && <Leaderboard currentUser={username} />}
 
       {activeTab==='bracket' && (
         <div style={{background:'#16213e',borderRadius:'12px',padding:'20px'}}>
