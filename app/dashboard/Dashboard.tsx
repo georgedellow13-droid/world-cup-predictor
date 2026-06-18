@@ -104,11 +104,7 @@ function Leaderboard({ currentUser }: { currentUser: string }) {
         {leaderboard.map((row, i) => (
           <div key={row.username} style={{
             background: row.username === currentUser ? 'rgba(230,57,70,0.2)' : '#16213e',
-            borderRadius:'10px',
-            padding:'12px 16px',
-            display:'flex',
-            alignItems:'center',
-            justifyContent:'space-between',
+            borderRadius:'10px', padding:'12px 16px', display:'flex', alignItems:'center', justifyContent:'space-between',
             border: row.username === currentUser ? '1px solid #e63946' : '1px solid transparent'
           }}>
             <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
@@ -262,6 +258,16 @@ export default function Dashboard() {
     return new Date(match.utcDate) <= new Date()
   }
 
+  function getRealScore(home: string, away: string) {
+    const match = matches.find(m => m.homeTeam?.name === home && m.awayTeam?.name === away)
+    if (!match) return null
+    if (match.status !== 'FINISHED' && match.status !== 'IN_PLAY' && match.status !== 'PAUSED') return null
+    const rh = match.score?.fullTime?.home
+    const ra = match.score?.fullTime?.away
+    if (rh === null || ra === null) return null
+    return { home: rh, away: ra, status: match.status }
+  }
+
   const teams = PRED_GROUPS[activeGroup] || []
   const fixtures: {home:string,away:string}[] = []
   for (let i=0;i<teams.length;i++) for (let j=i+1;j<teams.length;j++) fixtures.push({home:teams[i],away:teams[j]})
@@ -297,23 +303,43 @@ export default function Dashboard() {
               const key = `${activeGroup}_${home}_${away}`
               const p = predictions[key]
               const locked = isLocked(home, away)
+              const real = getRealScore(home, away)
+
+              let pointsBadge = null
+              if (real && p?.home !== undefined && p?.away !== undefined) {
+                const pts = scorePoints(parseInt(p.home), parseInt(p.away), real.home, real.away)
+                const color = pts === 3 ? '#2ecc71' : pts === 2 ? '#f39c12' : pts === -1 ? '#e63946' : '#aaa'
+                const label = pts === 3 ? '🎯 +3' : pts === 2 ? '↔️ +2' : pts === -1 ? '❌ -1' : '0'
+                pointsBadge = <span style={{fontSize:'0.75rem',color,fontWeight:'bold',marginLeft:'6px'}}>{label}</span>
+              }
+
               return (
-                <div key={key} style={{background:'#16213e',borderRadius:'10px',padding:'12px',display:'flex',alignItems:'center',justifyContent:'space-between',opacity: locked ? 0.6 : 1}}>
-                  <span style={{fontSize:'0.85rem',flex:1,textAlign:'right'}}>{home}</span>
-                  <div style={{display:'flex',alignItems:'center',gap:'6px',margin:'0 10px'}}>
-                    {locked ? (
-                      <span style={{fontWeight:'bold',fontSize:'1rem',color:'#aaa'}}>{p?.home ?? '-'} - {p?.away ?? '-'} 🔒</span>
-                    ) : (
-                      <>
-                        <input type="number" min="0" max="20" value={p?.home||''} onChange={e=>setScore(key,'home',e.target.value)}
-                          style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
-                        <span>-</span>
-                        <input type="number" min="0" max="20" value={p?.away||''} onChange={e=>setScore(key,'away',e.target.value)}
-                          style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
-                      </>
-                    )}
+                <div key={key} style={{background:'#16213e',borderRadius:'10px',padding:'12px',opacity: locked ? 0.85 : 1}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <span style={{fontSize:'0.8rem',flex:1,textAlign:'right'}}>{home}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:'6px',margin:'0 8px'}}>
+                      {locked ? (
+                        <span style={{fontWeight:'bold',fontSize:'1rem',color:'#aaa'}}>{p?.home ?? '-'} - {p?.away ?? '-'} 🔒</span>
+                      ) : (
+                        <>
+                          <input type="number" min="0" max="20" value={p?.home||''} onChange={e=>setScore(key,'home',e.target.value)}
+                            style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
+                          <span>-</span>
+                          <input type="number" min="0" max="20" value={p?.away||''} onChange={e=>setScore(key,'away',e.target.value)}
+                            style={{width:'40px',textAlign:'center',padding:'4px',borderRadius:'6px',border:'none',fontSize:'1rem'}} placeholder="0"/>
+                        </>
+                      )}
+                    </div>
+                    <span style={{fontSize:'0.8rem',flex:1}}>{away}</span>
                   </div>
-                  <span style={{fontSize:'0.85rem',flex:1}}>{away}</span>
+                  {real && (
+                    <div style={{textAlign:'center',marginTop:'6px',fontSize:'0.8rem'}}>
+                      <span style={{color:'#aaa'}}>Real: </span>
+                      <span style={{fontWeight:'bold'}}>{real.home} - {real.away}</span>
+                      <span style={{color:'#aaa',marginLeft:'4px'}}>{real.status === 'FINISHED' ? '✅ FT' : '🔴 LIVE'}</span>
+                      {pointsBadge}
+                    </div>
+                  )}
                 </div>
               )
             })}
