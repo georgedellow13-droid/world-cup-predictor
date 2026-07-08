@@ -1,16 +1,17 @@
+
 export async function GET() {
   try {
     const res = await fetch(
       'https://v3.football.api-sports.io/fixtures?league=1&season=2026',
       {
         headers: {
-          'x-apisports-key': 'a8957f5855bf9f34ffcaca39eb0abdd5'
-        }
+          'x-apisports-key': 'a8957f5855bf9f34ffcaca39eb0abdd5',
+          'x-rapidapi-host': 'v3.football.api-sports.io'
+        },
+        cache: 'no-store'
       }
     )
     const data = await res.json()
-
-    // Transform to match the format the app expects
     const matches = (data.response || []).map((item: any) => {
       const fixture = item.fixture
       const teams = item.teams
@@ -38,7 +39,7 @@ export async function GET() {
     })
 
     return Response.json({ matches })
-  } catch {
-    return Response.json({ error: 'Failed to fetch matches' }, { status: 500 })
+  } catch (e) {
+    return Response.json({ error: String(e) }, { status: 500 })
   }
 }
