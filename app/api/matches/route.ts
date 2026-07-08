@@ -1,32 +1,27 @@
 export async function GET() {
   try {
-    const res = await fetch(
-      'https://api.zafronix.com/fifa/worldcup/v1/tournaments/2026/matches',
-      {
-        headers: {
-          'X-API-Key': 'zwc_free_5c961348d89798d55c5eb4e8'
-        },
-        cache: 'no-store'
-      }
-    )
+    const res = await fetch('https://worldcup26.ir/get/games', { cache: 'no-store' })
     const data = await res.json()
 
-    const matches = (data.matches || data || []).map((item: any) => {
+    const matches = (Array.isArray(data) ? data : data.games || []).map((item: any) => {
       let status = 'SCHEDULED'
-      if (item.status === 'FT' || item.status === 'completed' || item.phase === 'FT') status = 'FINISHED'
-      else if (item.status === 'HT' || item.phase === 'HT') status = 'PAUSED'
-      else if (['1H','2H','ET','P','IN_PLAY','live'].includes(item.status || item.phase)) status = 'IN_PLAY'
+      const s = item.status || ''
+      if (['finished','completed','FT'].includes(s)) status = 'FINISHED'
+      else if (s === 'HT') status = 'PAUSED'
+      else if (['live','in_play','1H','2H'].includes(s)) status = 'IN_PLAY'
+
+      const group = item.group ? `GROUP_${item.group}` : null
 
       return {
-        utcDate: item.kickoff_utc || item.date,
+        utcDate: item.date || item.kickoff,
         status,
-        group: item.group_name ? `GROUP_${item.group_name}` : null,
-        homeTeam: { name: item.home_team },
-        awayTeam: { name: item.away_team },
+        group,
+        homeTeam: { name: item.home_team || item.team1 },
+        awayTeam: { name: item.away_team || item.team2 },
         score: {
           fullTime: {
-            home: item.home_score ?? null,
-            away: item.away_score ?? null
+            home: item.home_score ?? item.score?.home ?? null,
+            away: item.away_score ?? item.score?.away ?? null
           }
         }
       }
