@@ -2,37 +2,32 @@
 export async function GET() {
   try {
     const res = await fetch(
-      'https://v3.football.api-sports.io/fixtures?league=1&season=2026',
+      'https://api.zafronix.com/fifa/worldcup/v1/tournaments/2026/matches',
       {
         headers: {
-          'x-apisports-key': 'a8957f5855bf9f34ffcaca39eb0abdd5',
-          'x-rapidapi-host': 'v3.football.api-sports.io'
+          'X-API-Key': 'zwc_free_5c961348d89798d55c5eb4e8'
         },
         cache: 'no-store'
       }
     )
     const data = await res.json()
-    const matches = (data.response || []).map((item: any) => {
-      const fixture = item.fixture
-      const teams = item.teams
-      const goals = item.goals
-      const league = item.league
 
+    const matches = (data.matches || data || []).map((item: any) => {
       let status = 'SCHEDULED'
-      if (fixture.status.short === 'FT') status = 'FINISHED'
-      else if (fixture.status.short === 'HT') status = 'PAUSED'
-      else if (['1H','2H','ET','P'].includes(fixture.status.short)) status = 'IN_PLAY'
+      if (item.status === 'FT' || item.status === 'completed' || item.phase === 'FT') status = 'FINISHED'
+      else if (item.status === 'HT' || item.phase === 'HT') status = 'PAUSED'
+      else if (['1H','2H','ET','P','IN_PLAY','live'].includes(item.status || item.phase)) status = 'IN_PLAY'
 
       return {
-        utcDate: fixture.date,
+        utcDate: item.kickoff_utc || item.date,
         status,
-        group: league.round?.startsWith('Group') ? `GROUP_${league.round.replace('Group ', '').trim()}` : null,
-        homeTeam: { name: teams.home.name },
-        awayTeam: { name: teams.away.name },
+        group: item.group_name ? `GROUP_${item.group_name}` : null,
+        homeTeam: { name: item.home_team },
+        awayTeam: { name: item.away_team },
         score: {
           fullTime: {
-            home: goals.home,
-            away: goals.away
+            home: item.home_score ?? null,
+            away: item.away_score ?? null
           }
         }
       }
