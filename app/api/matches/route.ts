@@ -1,9 +1,21 @@
 export async function GET() {
   try {
-    const res = await fetch('https://worldcup26.ir/get/games', { cache: 'no-store' })
-    const data = await res.json()
+    const [gamesRes, teamsRes] = await Promise.all([
+      fetch('https://worldcup26.ir/get/games', { cache: 'no-store' }),
+      fetch('https://worldcup26.ir/get/teams', { cache: 'no-store' })
+    ])
+    const gamesData = await gamesRes.json()
+    const teamsData = await teamsRes.json()
 
-    const matches = (Array.isArray(data) ? data : data.games || []).map((item: any) => {
+    const teamMap: Record<number, string> = {}
+    const teams = Array.isArray(teamsData) ? teamsData : teamsData.teams || []
+    teams.forEach((t: any) => {
+      teamMap[t.id] = t.name
+    })
+
+    const games = Array.isArray(gamesData) ? gamesData : gamesData.games || []
+
+    const matches = games.map((item: any) => {
       let status = 'SCHEDULED'
       const s = item.status || ''
       if (['finished','completed','FT'].includes(s)) status = 'FINISHED'
@@ -11,17 +23,19 @@ export async function GET() {
       else if (['live','in_play','1H','2H'].includes(s)) status = 'IN_PLAY'
 
       const group = item.group ? `GROUP_${item.group}` : null
+      const homeName = teamMap[item.home_team_id] || ''
+      const awayName = teamMap[item.away_team_id] || ''
 
       return {
         utcDate: item.date || item.kickoff,
         status,
         group,
-        homeTeam: { name: item.home_team || item.team1 },
-        awayTeam: { name: item.away_team || item.team2 },
+        homeTeam: { name: homeName },
+        awayTeam: { name: awayName },
         score: {
           fullTime: {
-            home: item.home_score ?? item.score?.home ?? null,
-            away: item.away_score ?? item.score?.away ?? null
+            home: item.home_score ?? null,
+            away: item.away_score ?? null
           }
         }
       }
